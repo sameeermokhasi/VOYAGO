@@ -260,6 +260,7 @@ async def rate_ride(
     
     log_debug(f"Ride found. Rider ID: {ride.rider_id}, Status: {ride.status}")
     
+    # Robust ID comparison
     if str(ride.rider_id) != str(current_user.id):
         log_debug(f"Authorization failed. Rider ID: {ride.rider_id}, User ID: {current_user.id}")
         raise HTTPException(
@@ -267,12 +268,17 @@ async def rate_ride(
             detail="Not authorized to rate this ride"
         )
     
-    if str(ride.status) != RideStatus.COMPLETED.value:
+    current_status = str(ride.status).lower()
+    expected = RideStatus.COMPLETED.value.lower()
+    
+    if current_status != expected:
         log_debug(f"Invalid status: {ride.status} (Expected: {RideStatus.COMPLETED.value})")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Can only rate completed rides"
-        )
+        # Double check if it's just a casing issue or different enum representation
+        if "completed" not in current_status:
+             raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Can only rate completed rides (Current: {ride.status})"
+            )
     
     try:
         ride.rating = int(str(rating_data.rating))
@@ -467,21 +473,44 @@ async def update_ride(
             ride.status = RideStatus.COMPLETED.value
             ride.end_time = datetime.now()
             
-            # Process Payment
+            # Process Payment (80/20 Split)
             driver = db.query(User).filter(User.id == current_user.id).first()
             if driver:
-                # Add fare to driver's wallet
-                current_balance = float(driver.wallet_balance or 0)
-                driver.wallet_balance = current_balance + float(ride.estimated_fare)
+                # Calculate Split
+                total_fare = float(ride.final_fare or ride.estimated_fare or 0)
+                driver_cut = total_fare * 0.80
+                platform_cut = total_fare * 0.20
                 
-                # Create transaction record
-                transaction = Transaction(
+                # Credit Driver (80%)
+                current_driver_balance = float(driver.wallet_balance or 0)
+                driver.wallet_balance = current_driver_balance + driver_cut
+                
+                # Create Driver Transaction
+                # Create Driver Transaction
+                driver_txn = Transaction(
                     user_id=driver.id,
-                    amount=ride.estimated_fare,
+                    amount=driver_cut,
                     type="credit",
-                    description=f"Payment for ride #{ride.id}"
+                    description=f"Payment from {ride.rider.name}"
                 )
-                db.add(transaction)
+                db.add(driver_txn)
+                
+                # Credit Admin/Platform (20%)
+                # Assuming Admin ID is 1. If not, just logging it for now.
+                admin_user = db.query(User).filter(User.role == UserRole.ADMIN).first()
+                if admin_user:
+                    current_admin_balance = float(admin_user.wallet_balance or 0)
+                    admin_user.wallet_balance = current_admin_balance + platform_cut
+                    
+                    admin_txn = Transaction(
+                        user_id=admin_user.id,
+                        amount=platform_cut,
+                        type="credit",
+                        description=f"Platform Fee for ride #{ride.id} (20% of ₹{total_fare})"
+                    )
+                    db.add(admin_txn)
+                else:
+                    print(f"WARNING: No Admin user found to credit platform fee of {platform_cut}")
             
             # Check if this is part of a vacation and schedule next ride if so
             # DISABLED: Auto-scheduling is disabled to allow manual trigger via "Start Next Leg" button

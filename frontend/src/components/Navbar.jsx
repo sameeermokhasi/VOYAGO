@@ -3,7 +3,7 @@ import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import {
     Menu, X, Home, User, Wallet, Clock, LogOut,
-    MapPin, Settings, AlertCircle, Car
+    MapPin, Settings, AlertCircle, Car, MessageCircle
 } from 'lucide-react';
 
 export default function Navbar() {
@@ -25,6 +25,7 @@ export default function Navbar() {
         { path: '/rider/wallet', label: 'Wallet', icon: Wallet },
         { path: '/rider/history', label: 'Ride History', icon: Clock },
         { path: '/rider/vacation-booking', label: 'My Vacations', icon: MapPin },
+        { path: '/rider/messages', label: 'Messages', icon: MessageCircle },
     ];
 
     const driverLinks = [
@@ -32,7 +33,7 @@ export default function Navbar() {
         { path: '/driver/profile', label: 'Profile', icon: User },
         { path: '/driver/wallet', label: 'Wallet', icon: Wallet },
         { path: '/driver/history', label: 'Ride History', icon: Clock },
-        { path: '/driver/vacations', label: 'Vacation Requests', icon: Car },
+        { path: '/driver/messages', label: 'Messages', icon: MessageCircle },
     ];
 
     const adminLinks = [

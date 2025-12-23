@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react'
-import { Users, Car, MapPin, Plane, Calendar, Wallet, LogOut, CheckCircle, XCircle, Activity, Bell, Clock, Star, AlertCircle } from 'lucide-react'
+import { Users, Car, MapPin, Plane, Calendar, Wallet, LogOut, CheckCircle, XCircle, Activity, Bell, Clock, Star, AlertCircle, MessageCircle } from 'lucide-react'
 import { adminService, vacationService, rideService } from '../services/api'
 import { useAuthStore } from '../store/authStore'
+import ChatWindow from '../components/ChatWindow'
+import AdminLiveMap from '../components/AdminLiveMap'
 
 export default function AdminDashboard() {
   const [stats, setStats] = useState({
@@ -15,15 +17,25 @@ export default function AdminDashboard() {
   const [rides, setRides] = useState([])
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('overview')
+  const [activeChat, setActiveChat] = useState(null)
   const { logout } = useAuthStore()
+
+  const handleOpenChat = (driver, rideId = null) => {
+    if (!driver) return;
+    setActiveChat({
+      userId: driver.id,
+      name: driver.name,
+      rideId: rideId
+    })
+  }
 
   useEffect(() => {
     loadData()
 
-    // Set up interval to refresh data every 30 seconds
+    // Set up interval to refresh data every 3 seconds for Real-Time Demo
     const interval = setInterval(() => {
       loadData()
-    }, 30000)
+    }, 3000)
 
     return () => clearInterval(interval)
   }, [])
@@ -258,6 +270,15 @@ export default function AdminDashboard() {
           <div>
             <h1 className="text-3xl font-bold mb-8">Dashboard Overview</h1>
 
+            {/* Live Operations Map */}
+            {loading ? (
+              <div className="text-center py-12">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto"></div>
+              </div>
+            ) : (
+              <AdminLiveMap rides={rides} />
+            )}
+
             {loading ? (
               <div className="text-center py-12">
                 <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto"></div>
@@ -298,7 +319,7 @@ export default function AdminDashboard() {
                   <div className="flex items-center">
                     <Wallet className="w-8 h-8 text-purple-600 mr-3" />
                     <div>
-                      <p className="text-gray-400">Total Revenue</p>
+                      <p className="text-gray-400">Total Platform Revenue (20%)</p>
                       <p className="text-2xl font-bold text-white">₹{stats.totalRevenue.toFixed(2)}</p>
                     </div>
                   </div>
@@ -562,6 +583,26 @@ export default function AdminDashboard() {
                               Cancel
                             </button>
                           )}
+                          {ride.driver && (
+                            <button
+                              onClick={() => handleOpenChat(ride.driver, ride.id)}
+                              className="text-blue-500 hover:text-blue-400 flex items-center ml-3"
+                              title="Message Driver"
+                            >
+                              <MessageCircle className="w-4 h-4 mr-1" />
+                              Driver
+                            </button>
+                          )}
+                          {ride.rider && (
+                            <button
+                              onClick={() => handleOpenChat(ride.rider, ride.id)}
+                              className="text-green-500 hover:text-green-400 flex items-center ml-3"
+                              title="Message Rider"
+                            >
+                              <MessageCircle className="w-4 h-4 mr-1" />
+                              Rider
+                            </button>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -721,6 +762,16 @@ export default function AdminDashboard() {
           </div>
         )}
       </div>
-    </div>
+      {
+        activeChat && (
+          <ChatWindow
+            receiverId={activeChat.userId}
+            receiverName={activeChat.name}
+            rideId={activeChat.rideId}
+            onClose={() => setActiveChat(null)}
+          />
+        )
+      }
+    </div >
   )
 }

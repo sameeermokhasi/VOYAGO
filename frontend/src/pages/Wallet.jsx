@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useAuthStore } from '../store/authStore';
 import { Wallet as WalletIcon, Plus, CreditCard, History, ArrowUpRight, ArrowDownLeft } from 'lucide-react';
 import api from '../lib/axios';
+import { userService } from '../services/api';
 
 export default function Wallet() {
     const { user, token, checkAuth } = useAuthStore();
@@ -14,13 +15,22 @@ export default function Wallet() {
     useEffect(() => {
         if (user) {
             setBalance(user.wallet_balance || 0);
-            // Mock transactions for now as we don't have a transaction history endpoint yet
-            // In a real app, we'd fetch this from /users/transactions
-            setTransactions([
-                { id: 1, type: 'credit', amount: 500, date: '2023-06-15', description: 'Added money to wallet' },
-                { id: 2, type: 'debit', amount: 250, date: '2023-06-14', description: 'Ride payment' },
-                { id: 3, type: 'debit', amount: 150, date: '2023-06-10', description: 'Ride payment' },
-            ]);
+
+            const fetchTransactions = async () => {
+                try {
+                    const data = await userService.getTransactions();
+                    // Map backend response (created_at) to frontend expectation (date)
+                    const formattedTransactions = data.map(tx => ({
+                        ...tx,
+                        date: tx.created_at
+                    }));
+                    setTransactions(formattedTransactions);
+                } catch (error) {
+                    console.error('Failed to load transactions:', error);
+                }
+            };
+
+            fetchTransactions();
         }
     }, [user]);
 
@@ -126,7 +136,7 @@ export default function Wallet() {
                                         </div>
                                         <span className={`font-bold ${tx.type === 'credit' ? 'text-green-400' : 'text-white'
                                             }`}>
-                                            {tx.type === 'credit' ? '+' : '-'}₹{tx.amount}
+                                            {tx.type === 'credit' ? '+' : '-'}₹{Number(tx.amount).toFixed(2)}
                                         </span>
                                     </div>
                                 ))}

@@ -34,9 +34,10 @@ async def get_admin_stats(
     ).count()
     completed_rides = db.query(Ride).filter(Ride.status == RideStatus.COMPLETED).count()
     
-    total_revenue = db.query(func.sum(Ride.final_fare)).filter(
-        Ride.status == RideStatus.COMPLETED
-    ).scalar() or 0.0
+    # Calculate Platform Revenue (Admin Wallet Balance or Sum of Platform Fees)
+    # Method 1: Get Admin User Wallet Balance (Most Accurate based on new rides.py logic)
+    admin_user = db.query(User).filter(User.role == UserRole.ADMIN).first()
+    total_revenue = float(admin_user.wallet_balance) if admin_user and admin_user.wallet_balance else 0.0
     
     return {
         "total_users": total_users,

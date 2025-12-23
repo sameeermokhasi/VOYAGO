@@ -5,7 +5,7 @@ import uvicorn
 
 from app.database import engine, Base, get_db
 from app.models import User, UserRole
-from app.routers import auth, rides, users, admin, vacation, vacation_scheduler
+from app.routers import auth, rides, users, admin, vacation, vacation_scheduler, messages
 from app.websocket import manager
 from app.auth import decode_access_token, get_current_active_user
 from sqlalchemy.orm import Session
@@ -34,8 +34,13 @@ app.add_middleware(
         "http://localhost:5173", 
         "http://localhost:3000",
         "http://localhost:5000",  # Rider frontend
-        "http://localhost:6001",  # Driver frontend (changed from 6000)
-        "http://localhost:7001"   # Admin frontend
+        "http://localhost:6001",  # Driver frontend
+        "http://localhost:7001",  # Admin frontend
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:5000",
+        "http://127.0.0.1:6001",
+        "http://127.0.0.1:7001",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -49,6 +54,7 @@ app.include_router(users.router, prefix="/api/users", tags=["Users"])
 app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
 app.include_router(vacation.router, prefix="/api/vacation", tags=["Vacation"])
 app.include_router(vacation_scheduler.router, prefix="/api/scheduler", tags=["Vacation Scheduler"])
+app.include_router(messages.router, prefix="/api/messages", tags=["Messages"])
 
 @app.get("/")
 async def root():
@@ -109,11 +115,26 @@ async def websocket_endpoint(websocket: WebSocket, token: str, db: Session = Dep
     try:
         while True:
             data = await websocket.receive_text()
-            # Echo back or process messages
-            await manager.send_personal_message(
-                {"type": "message", "data": data},
-                user_id
-            )
+            try:
+                # Attempt to parse json
+                import json
+                msg_data = json.loads(data)
+                
+                if msg_data.get("type") == "SAFETY_ALERT":
+                    # Broadcast critical alerts to all connected clients (Riders)
+                    await manager.broadcast(msg_data)
+                else:
+                    # Echo back for testing or other messages
+                    await manager.send_personal_message(
+                        {"type": "message", "data": data},
+                        user_id
+                    )
+            except Exception:
+                # If not JSON or error, just echo
+                await manager.send_personal_message(
+                        {"type": "message", "data": data},
+                        user_id
+                    )
     except WebSocketDisconnect:
         manager.disconnect(websocket, user_id)
 

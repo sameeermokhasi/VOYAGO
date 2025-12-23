@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { MapContainer, TileLayer, Marker, Popup, Polyline } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import { Navigation, Clock, User, Car } from 'lucide-react'
+import { Car } from 'lucide-react'
 
 // Fix for default marker icons in Leaflet with Vite
 delete L.Icon.Default.prototype._getIconUrl
@@ -32,12 +32,12 @@ const destinationIcon = new L.Icon({
 })
 
 const driverIcon = new L.Icon({
-  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png',
+  iconUrl: 'https://img.icons8.com/fluency/48/sedan.png',
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
-  shadowSize: [41, 41]
+  iconSize: [48, 48],
+  iconAnchor: [24, 24],
+  popupAnchor: [0, -24],
+  shadowSize: [48, 48]
 })
 
 export default function DriverRouteMap({ ride, driverLocation }) {
@@ -65,7 +65,7 @@ export default function DriverRouteMap({ ride, driverLocation }) {
         `https://router.project-osrm.org/route/v1/driving/${ride.pickup_lng},${ride.pickup_lat};${ride.destination_lng},${ride.destination_lat}?overview=full&geometries=geojson`
       )
       const data = await response.json()
-      
+
       if (data.routes && data.routes.length > 0) {
         const routeData = data.routes[0]
         const coordinates = routeData.geometry.coordinates.map(coord => [coord[1], coord[0]])
@@ -73,7 +73,7 @@ export default function DriverRouteMap({ ride, driverLocation }) {
       }
     } catch (error) {
       console.error('Failed to calculate route:', error)
-      // Fallback to simple straight line
+      // Fallback to simple straight line in case of error
       setRoute([
         [ride.pickup_lat, ride.pickup_lng],
         [ride.destination_lat, ride.destination_lng]
@@ -88,7 +88,7 @@ export default function DriverRouteMap({ ride, driverLocation }) {
         `https://router.project-osrm.org/route/v1/driving/${driverLocation.lng},${driverLocation.lat};${ride.pickup_lng},${ride.pickup_lat}?overview=full&geometries=geojson`
       )
       const data = await response.json()
-      
+
       if (data.routes && data.routes.length > 0) {
         const routeData = data.routes[0]
         const coordinates = routeData.geometry.coordinates.map(coord => [coord[1], coord[0]])
@@ -117,10 +117,10 @@ export default function DriverRouteMap({ ride, driverLocation }) {
         className="z-0"
       >
         <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          attribution='Tiles &copy; Esri &mdash; Source: Esri, DeLorme, NAVTEQ, USGS, Intermap, iPC, NRCAN, Esri Japan, METI, Esri China (Hong Kong), Esri (Thailand), TomTom, 2012'
+          url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}"
         />
-        
+
         {ride && ride.pickup_lat && (
           <Marker position={[ride.pickup_lat, ride.pickup_lng]} icon={pickupIcon}>
             <Popup>
@@ -131,7 +131,7 @@ export default function DriverRouteMap({ ride, driverLocation }) {
             </Popup>
           </Marker>
         )}
-        
+
         {ride && ride.destination_lat && (
           <Marker position={[ride.destination_lat, ride.destination_lng]} icon={destinationIcon}>
             <Popup>
@@ -142,7 +142,7 @@ export default function DriverRouteMap({ ride, driverLocation }) {
             </Popup>
           </Marker>
         )}
-        
+
         {driverLocation && driverLocation.lat && (
           <Marker position={[driverLocation.lat, driverLocation.lng]} icon={driverIcon}>
             <Popup>
@@ -153,7 +153,7 @@ export default function DriverRouteMap({ ride, driverLocation }) {
             </Popup>
           </Marker>
         )}
-        
+
         {route.length > 0 && (
           <Polyline
             positions={route}
@@ -162,7 +162,7 @@ export default function DriverRouteMap({ ride, driverLocation }) {
             opacity={0.7}
           />
         )}
-        
+
         {driverRoute.length > 0 && (
           <Polyline
             positions={driverRoute}
@@ -182,7 +182,7 @@ export default function DriverRouteMap({ ride, driverLocation }) {
           </h4>
           <div className="space-y-1 text-sm">
             <p className="text-gray-600">
-              Your driver is heading to your pickup location
+              Real-time location tracking
             </p>
           </div>
         </div>

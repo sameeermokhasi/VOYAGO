@@ -34,7 +34,7 @@ const destinationIcon = new L.Icon({
 // Component to fit bounds when markers change
 function MapBounds({ pickup, destination }) {
   const map = useMap()
-  
+
   useEffect(() => {
     if (pickup && destination) {
       const bounds = L.latLngBounds([
@@ -44,7 +44,7 @@ function MapBounds({ pickup, destination }) {
       map.fitBounds(bounds, { padding: [50, 50] })
     }
   }, [pickup, destination, map])
-  
+
   return null
 }
 
@@ -66,30 +66,30 @@ export default function MapWithRoute({ pickup, destination, onRouteCalculated })
         `https://router.project-osrm.org/route/v1/driving/${pickup.lng},${pickup.lat};${destination.lng},${destination.lat}?overview=full&geometries=geojson`
       )
       const data = await response.json()
-      
+
       if (data.routes && data.routes.length > 0) {
         const routeData = data.routes[0]
         const coordinates = routeData.geometry.coordinates.map(coord => [coord[1], coord[0]])
         setRoute(coordinates)
-        
+
         // Calculate distance and time
         const distanceKm = (routeData.distance / 1000).toFixed(1)
         const durationMin = Math.round(routeData.duration / 60)
-        
+
         // Calculate ETA
         const now = new Date()
         const pickupTime = new Date(now.getTime() + 10 * 60000) // 10 mins to pickup
         const dropoffTime = new Date(pickupTime.getTime() + routeData.duration * 1000)
-        
+
         const info = {
           distance: distanceKm,
           duration: durationMin,
           pickupETA: pickupTime.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
           dropoffETA: dropoffTime.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
         }
-        
+
         setRouteInfo(info)
-        
+
         // Call parent callback if provided
         if (onRouteCalculated) {
           onRouteCalculated(info)
@@ -97,7 +97,7 @@ export default function MapWithRoute({ pickup, destination, onRouteCalculated })
       }
     } catch (error) {
       console.error('Failed to calculate route:', error)
-      // Fallback to simple straight line
+      // Fallback to simple straight line in case of error
       setRoute([
         [pickup.lat, pickup.lng],
         [destination.lat, destination.lng]
@@ -118,10 +118,10 @@ export default function MapWithRoute({ pickup, destination, onRouteCalculated })
         className="z-0"
       >
         <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          attribution='Tiles &copy; Esri &mdash; Source: Esri, DeLorme, NAVTEQ, USGS, Intermap, iPC, NRCAN, Esri Japan, METI, Esri China (Hong Kong), Esri (Thailand), TomTom, 2012'
+          url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}"
         />
-        
+
         {pickup && pickup.lat && (
           <Marker position={[pickup.lat, pickup.lng]} icon={pickupIcon}>
             <Popup>
@@ -132,7 +132,7 @@ export default function MapWithRoute({ pickup, destination, onRouteCalculated })
             </Popup>
           </Marker>
         )}
-        
+
         {destination && destination.lat && (
           <Marker position={[destination.lat, destination.lng]} icon={destinationIcon}>
             <Popup>
@@ -143,7 +143,7 @@ export default function MapWithRoute({ pickup, destination, onRouteCalculated })
             </Popup>
           </Marker>
         )}
-        
+
         {route.length > 0 && (
           <Polyline
             positions={route}
@@ -152,7 +152,7 @@ export default function MapWithRoute({ pickup, destination, onRouteCalculated })
             opacity={0.7}
           />
         )}
-        
+
         {pickup && destination && (
           <MapBounds pickup={pickup} destination={destination} />
         )}

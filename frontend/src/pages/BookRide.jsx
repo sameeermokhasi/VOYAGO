@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { MapPin, DollarSign, Car, Clock, ArrowLeft, Search } from 'lucide-react'
+import { MapPin, DollarSign, Car, Clock, ArrowLeft, Search, Mic, TrendingUp, TrendingDown, Info } from 'lucide-react'
 import { rideService } from '../services/api'
 import MapWithRoute from '../components/MapWithRoute'
 
@@ -11,6 +11,7 @@ export default function BookRide() {
     pickup_lat: 0,
     pickup_lng: 0,
     destination_address: '',
+    destination_lat: 0,
     destination_lng: 0,
     vehicle_type: 'economy',
     scheduled_time: ''
@@ -18,6 +19,7 @@ export default function BookRide() {
   const [estimatedFare, setEstimatedFare] = useState(null)
   const [loading, setLoading] = useState(false)
   const [mapRouteInfo, setMapRouteInfo] = useState(null)
+  const [isListening, setIsListening] = useState(false)
 
   // Autocomplete states
   const [pickupSuggestions, setPickupSuggestions] = useState([])
@@ -33,6 +35,27 @@ export default function BookRide() {
     { name: 'Indiranagar', lat: 12.9719, lng: 77.6412, city: 'Bangalore' },
     { name: 'Koramangala', lat: 12.9352, lng: 77.6245, city: 'Bangalore' },
     { name: 'Whitefield', lat: 12.9698, lng: 77.7500, city: 'Bangalore' },
+
+    // Requested Key Locations
+    { name: 'BMS College of Engineering (Basavangudi)', lat: 12.9410, lng: 77.5655, city: 'Bangalore' },
+    { name: 'Bull Temple (Basavangudi)', lat: 12.9423, lng: 77.5683, city: 'Bangalore' },
+    { name: 'Ironhill Hotel (Whitefield)', lat: 12.9593, lng: 77.7006, city: 'Bangalore' },
+    { name: 'Meghana Foods (Koramangala)', lat: 12.9345, lng: 77.6186, city: 'Bangalore' },
+    { name: 'RNR Hotel (Jayanagar)', lat: 12.9334, lng: 77.6105, city: 'Bangalore' },
+
+    // Additional Popular Spots
+    { name: 'Cubbon Park', lat: 12.9752, lng: 77.5937, city: 'Bangalore' },
+    { name: 'Lalbagh Botanical Garden', lat: 12.9507, lng: 77.5848, city: 'Bangalore' },
+    { name: 'UB City', lat: 12.9716, lng: 77.5960, city: 'Bangalore' },
+    { name: 'Orion Mall', lat: 13.0110, lng: 77.5550, city: 'Bangalore' },
+    { name: 'Mantri Square', lat: 12.9915, lng: 77.5700, city: 'Bangalore' },
+    { name: 'Phoenix Marketcity', lat: 12.9970, lng: 77.6960, city: 'Bangalore' },
+    { name: 'Bannerghatta Zoo', lat: 12.8000, lng: 77.5770, city: 'Bangalore' },
+    { name: 'Wonderla Amusement Park', lat: 12.8340, lng: 77.4010, city: 'Bangalore' },
+    { name: 'ISKCON Temple', lat: 13.0090, lng: 77.5510, city: 'Bangalore' },
+    { name: 'Vidhana Soudha', lat: 12.9797, lng: 77.5912, city: 'Bangalore' },
+    { name: 'Commercial Street', lat: 12.9820, lng: 77.6080, city: 'Bangalore' },
+    { name: 'M G Road', lat: 12.9750, lng: 77.6090, city: 'Bangalore' },
 
     // Hubli-Dharwad
     { name: 'Hubli Junction', lat: 15.3647, lng: 75.1240, city: 'Hubli' },
@@ -76,7 +99,6 @@ export default function BookRide() {
           loc.name.toLowerCase().includes(value.toLowerCase()) ||
           loc.city.toLowerCase().includes(value.toLowerCase())
         )
-        console.log(`Filtered pickup suggestions: ${filtered.length}`)
         setPickupSuggestions(filtered)
         setShowPickupSuggestions(true)
       } else {
@@ -117,41 +139,142 @@ export default function BookRide() {
     }
   }
 
-  const calculateEstimate = () => {
-    if (formData.pickup_lat && formData.destination_lat) {
-      // Haversine formula
-      const R = 6371
-      const dLat = (formData.destination_lat - formData.pickup_lat) * Math.PI / 180
-      const dLon = (formData.destination_lng - formData.pickup_lng) * Math.PI / 180
-      const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-        Math.cos(formData.pickup_lat * Math.PI / 180) * Math.cos(formData.destination_lat * Math.PI / 180) *
-        Math.sin(dLon / 2) * Math.sin(dLon / 2)
-      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-      const distance = R * c
+  // --- Geocoding Logic (Nominatim - Free/No Key) ---
+  const geocodeAddress = async (address) => {
+    try {
+      // Prioritize "Bangalore" context if not specified
+      const query = address.toLowerCase().includes('bangalore') ? address : `${address}, Bangalore`
+      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`)
+      const data = await response.json()
 
-      const baseFare = { economy: 50, suv: 120, luxury: 200 }
-      const perKmRate = { economy: 10, suv: 18, luxury: 25 }
-
-      const fare = baseFare[formData.vehicle_type] + (distance * perKmRate[formData.vehicle_type])
-      const duration = Math.round((distance / 40) * 60)
-
-      setEstimatedFare({
-        distance: distance.toFixed(1),
-        duration,
-        fare: fare.toFixed(2)
-      })
+      if (data && data.length > 0) {
+        return {
+          lat: parseFloat(data[0].lat),
+          lng: parseFloat(data[0].lon),
+          display_name: data[0].display_name
+        }
+      }
+      return null
+    } catch (error) {
+      console.error("Geocoding failed:", error)
+      return null
     }
   }
 
+  // Handle manual search (Enter key or Blur)
+  const handleAddressSearch = async (field, value) => {
+    if (!value) return
+
+    // 1. Check popular locations first (Instant match)
+    const localMatch = popularLocations.find(loc =>
+      loc.name.toLowerCase() === value.toLowerCase()
+    )
+
+    if (localMatch) {
+      handleLocationSelect(field, localMatch)
+      return
+    }
+
+    // 2. Fallback to Nominatim Geocoding
+    setLoading(true)
+    const coords = await geocodeAddress(value)
+    setLoading(false)
+
+    if (coords) {
+      setFormData(prev => ({
+        ...prev,
+        [`${field}_address`]: value,
+        [`${field}_lat`]: coords.lat,
+        [`${field}_lng`]: coords.lng
+      }))
+      // Hide suggestions
+      if (field === 'pickup') setShowPickupSuggestions(false)
+      else setShowDestSuggestions(false)
+    }
+  }
+
+  // --- Voice Booking Logic ---
+  const startListening = () => {
+    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
+      const recognition = new SpeechRecognition()
+      recognition.lang = 'en-US';
+      recognition.continuous = false;
+      recognition.interimResults = false;
+
+      recognition.onstart = () => {
+        setIsListening(true)
+        console.log("Voice recognition started")
+      }
+
+      recognition.onend = () => {
+        setIsListening(false)
+        console.log("Voice recognition ended")
+      }
+
+      recognition.onerror = (event) => {
+        setIsListening(false)
+        console.error("Voice recognition error", event.error)
+
+        if (event.error === 'not-allowed') {
+          alert("Microphone access denied. Please allow microphone permissions.");
+        } else if (event.error === 'network') {
+          alert("Network Error. Please check internet connection.");
+        } else {
+          alert(`Voice Error: ${event.error}`);
+        }
+      }
+
+      recognition.onresult = async (event) => {
+        const transcript = event.results[0][0].transcript
+        console.log("Voice transcript:", transcript)
+
+        let dest = transcript.replace(/^(i want to )?book (a )?ride to /i, '')
+          .replace(/^go to /i, '')
+          .replace(/^drive to /i, '')
+          .replace(/^take me to /i, '')
+          .trim();
+
+        if (!dest) dest = transcript;
+        dest = dest.replace(/[.,!?]$/, '');
+
+        // Update Text
+        handleInputChange('destination', dest)
+        alert(`Recognized: "${dest}" - Searching location...`)
+
+        // Trigger Search/Geocode
+        await handleAddressSearch('destination', dest)
+      }
+
+      try {
+        recognition.start()
+      } catch (e) {
+        console.error("Recognition start error:", e)
+      }
+
+    } else {
+      alert("Voice Recognition not supported in this browser.")
+    }
+  }
+
+  // --- Smart Price Prediction Logic ---
+  const getPriceTrend = () => {
+    const hours = new Date().getHours()
+    // Peak hours: 8-10 AM and 5-8 PM
+    if ((hours >= 8 && hours <= 10) || (hours >= 17 && hours <= 20)) {
+      return { type: 'surge', text: 'Step Surge pricing implies high demand.', icon: <TrendingUp className="text-red-500 w-4 h-4" /> }
+    }
+    // Low demand: 11 AM - 3 PM
+    if (hours >= 11 && hours <= 15) {
+      return { type: 'low', text: 'Fares are lower than usual.', icon: <TrendingDown className="text-green-500 w-4 h-4" /> }
+    }
+    return { type: 'normal', text: 'Standard fair pricing.', icon: <Info className="text-blue-500 w-4 h-4" /> }
+  }
+
+  const priceTrend = getPriceTrend();
+
   const handleSubmit = async (e) => {
     e.preventDefault()
-
-    // Calculate estimate if not already calculated
-    if (!estimatedFare) {
-      calculateEstimate()
-      // Wait a moment for state to update
-      await new Promise(resolve => setTimeout(resolve, 100))
-    }
 
     if (!estimatedFare || !estimatedFare.fare) {
       alert('Please select pickup and destination locations first!')
@@ -161,7 +284,6 @@ export default function BookRide() {
     setLoading(true)
 
     try {
-      // Only send the required fields to the backend
       const rideData = {
         pickup_address: formData.pickup_address,
         pickup_lat: formData.pickup_lat,
@@ -200,7 +322,14 @@ export default function BookRide() {
 
       <div className="container mx-auto px-6 py-8">
         <div className="max-w-4xl mx-auto">
-          <h1 className="text-3xl font-bold mb-8">Book a Local Ride</h1>
+          <div className="flex justify-between items-center mb-8">
+            <h1 className="text-3xl font-bold">Book a Local Ride</h1>
+            {/* Voice Command Hint */}
+            <div className="hidden md:flex items-center text-sm text-gray-500 bg-dark-800 px-3 py-1 rounded-full border border-dark-700">
+              <Mic className="w-3 h-3 mr-2" />
+              Try saying "Book ride to Airport"
+            </div>
+          </div>
 
           <div className="grid md:grid-cols-3 gap-6">
             {/* Map View */}
@@ -251,6 +380,8 @@ export default function BookRide() {
                       value={formData.pickup_address}
                       onChange={(e) => handleInputChange('pickup', e.target.value)}
                       onFocus={() => formData.pickup_address && setShowPickupSuggestions(true)}
+                      onBlur={() => setTimeout(() => handleAddressSearch('pickup', formData.pickup_address), 200)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleAddressSearch('pickup', formData.pickup_address)}
                       className="input-field pl-10"
                       placeholder="Search pickup location (e.g., BTM Layout)"
                       required
@@ -279,9 +410,19 @@ export default function BookRide() {
 
                 {/* Destination */}
                 <div className="relative">
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
-                    <MapPin className="w-4 h-4 inline text-red-500 mr-1" />
-                    Destination
+                  <label className="flex justify-between text-sm font-medium text-gray-300 mb-2">
+                    <span>
+                      <MapPin className="w-4 h-4 inline text-red-500 mr-1" />
+                      Destination
+                    </span>
+                    <button
+                      type="button"
+                      onClick={startListening}
+                      className={`text-xs flex items-center ${isListening ? 'text-red-500 animate-pulse' : 'text-primary hover:text-blue-400'}`}
+                    >
+                      <Mic className="w-3 h-3 mr-1" />
+                      {isListening ? 'Listening...' : 'Voice Search'}
+                    </button>
                   </label>
                   <div className="relative">
                     <input
@@ -289,6 +430,8 @@ export default function BookRide() {
                       value={formData.destination_address}
                       onChange={(e) => handleInputChange('destination', e.target.value)}
                       onFocus={() => formData.destination_address && setShowDestSuggestions(true)}
+                      onBlur={() => setTimeout(() => handleAddressSearch('destination', formData.destination_address), 200)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleAddressSearch('destination', formData.destination_address)}
                       className="input-field pl-10"
                       placeholder="Search destination (e.g., Indiranagar)"
                       required
@@ -315,36 +458,50 @@ export default function BookRide() {
                   )}
                 </div>
 
-                {/* Vehicle Type */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-3">Vehicle Type</label>
-                  <div className="grid grid-cols-2 gap-3">
-                    {[
-                      { value: 'economy', label: 'Economy', icon: '🚗', price: '₹50 + ₹10/km' },
-                      { value: 'suv', label: 'SUV', icon: '🚐', price: '₹120 + ₹18/km' },
-                      { value: 'luxury', label: 'Luxury', icon: '🚘', price: '₹200 + ₹25/km' }
-                    ].map((vehicle) => (
-                      <button
-                        key={vehicle.value}
-                        type="button"
-                        onClick={() => setFormData({ ...formData, vehicle_type: vehicle.value })}
-                        className={`p-4 border-2 rounded-lg text-left transition-all ${formData.vehicle_type === vehicle.value
-                          ? 'border-primary-600 bg-primary-900/20'
-                          : 'border-dark-600 hover:border-dark-500 bg-dark-800'
-                          }`}
-                      >
-                        <div className="text-2xl mb-1">{vehicle.icon}</div>
-                        <div className="font-semibold text-white">{vehicle.label}</div>
-                        <div className="text-xs text-gray-400">{vehicle.price}</div>
-                      </button>
-                    ))}
-                  </div>
+                {/* Vehicle Selection */}
+                <div className="grid grid-cols-2 gap-4">
+                  <button
+                    type="button"
+                    onClick={() => setFormData({ ...formData, vehicle_type: 'economy' })}
+                    className={`p-4 rounded-xl border flex flex-col items-center justify-center transition-all ${formData.vehicle_type === 'economy'
+                      ? 'bg-primary/20 border-primary text-primary'
+                      : 'bg-dark-800 border-dark-700 hover:border-dark-600'
+                      }`}
+                  >
+                    <Car className="w-8 h-8 mb-2" />
+                    <span className="font-bold">Economy</span>
+                    <span className="text-xs mt-1">₹50 + ₹10/km</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFormData({ ...formData, vehicle_type: 'suv' })}
+                    className={`p-4 rounded-xl border flex flex-col items-center justify-center transition-all ${formData.vehicle_type === 'suv'
+                      ? 'bg-primary/20 border-primary text-primary'
+                      : 'bg-dark-800 border-dark-700 hover:border-dark-600'
+                      }`}
+                  >
+                    <Car className="w-8 h-8 mb-2" />
+                    <span className="font-bold">SUV</span>
+                    <span className="text-xs mt-1">₹120 + ₹18/km</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFormData({ ...formData, vehicle_type: 'luxury' })}
+                    className={`p-4 rounded-xl border flex flex-col items-center justify-center transition-all ${formData.vehicle_type === 'luxury'
+                      ? 'bg-primary/20 border-primary text-primary'
+                      : 'bg-dark-800 border-dark-700 hover:border-dark-600'
+                      }`}
+                  >
+                    <Car className="w-8 h-8 mb-2" />
+                    <span className="font-bold">Luxury</span>
+                    <span className="text-xs mt-1">₹200 + ₹25/km</span>
+                  </button>
                 </div>
 
-                {/* Schedule (Optional) */}
+                {/* Schedule Ride */}
                 <div>
                   <label className="block text-sm font-medium text-gray-300 mb-2">
-                    <Clock className="w-4 h-4 inline mr-1" />
+                    <Clock className="w-4 h-4 inline text-blue-500 mr-1" />
                     Schedule for Later (Optional)
                   </label>
                   <input
@@ -355,72 +512,79 @@ export default function BookRide() {
                   />
                 </div>
 
-                {/* Calculate Estimate */}
-
-
-                {/* Submit */}
                 <button
                   type="submit"
-                  className="btn-primary w-full"
-                  disabled={loading || !formData.pickup_lat || !formData.destination_lat}
+                  disabled={loading}
+                  className="btn-primary w-full py-3 text-lg font-bold flex items-center justify-center"
                 >
-                  {loading ? 'Booking...' : 'Confirm Booking'}
+                  {loading ? 'Booking...' : 'Confirm Request'}
                 </button>
               </form>
             </div>
 
-            {/* Fare Estimate */}
+            {/* Fare Estimate Panel */}
             <div className="md:col-span-1">
-              <div className="card sticky top-6">
-                <h3 className="text-lg font-bold mb-4">Fare Estimate</h3>
+              <div className="card h-full">
+                <h3 className="text-xl font-bold mb-6">Fare Estimate</h3>
 
                 {estimatedFare ? (
-                  <div className="space-y-4">
-                    <div className="bg-primary-900/20 rounded-lg p-4 border border-primary-900/30">
-                      <p className="text-sm text-gray-400 mb-1">Estimated Fare</p>
-                      <p className="text-3xl font-bold text-primary-400">
-                        ₹{estimatedFare.fare}
-                      </p>
+                  <div className="space-y-6">
+                    <div className="bg-dark-700 p-6 rounded-2xl text-center">
+                      <p className="text-gray-400 text-sm mb-1">Estimated Fare</p>
+                      <h2 className="text-4xl font-extrabold text-primary">₹{estimatedFare.fare}</h2>
                     </div>
 
-                    <div className="space-y-2 text-sm">
-                      <div className="flex justify-between">
+                    <div className="space-y-4">
+                      <div className="flexjustify-between items-center text-sm">
                         <span className="text-gray-400">Distance</span>
-                        <span className="font-semibold text-white">{estimatedFare.distance} km</span>
+                        <span className="font-semibold">{estimatedFare.distance} km</span>
                       </div>
-                      <div className="flex justify-between">
+                      <div className="flex justify-between items-center text-sm">
                         <span className="text-gray-400">Est. Duration</span>
-                        <span className="font-semibold text-white">{estimatedFare.duration} min</span>
+                        <span className="font-semibold">{estimatedFare.duration} min</span>
                       </div>
-                      <div className="flex justify-between">
+                      <div className="flex justify-between items-center text-sm">
                         <span className="text-gray-400">Vehicle</span>
-                        <span className="font-semibold capitalize text-white">{formData.vehicle_type}</span>
+                        <span className="capitalize font-semibold">{formData.vehicle_type}</span>
                       </div>
-                      {estimatedFare.pickupETA && (
-                        <>
-                          <div className="border-t pt-2 mt-2"></div>
-                          <div className="flex justify-between text-green-400">
-                            <span>🕒 Pickup ETA</span>
-                            <span className="font-semibold">{estimatedFare.pickupETA}</span>
-                          </div>
-                          <div className="flex justify-between text-blue-400">
-                            <span>🏁 Drop-off ETA</span>
-                            <span className="font-semibold">{estimatedFare.dropoffETA}</span>
-                          </div>
-                        </>
-                      )}
                     </div>
 
-                    <div className="border-t border-dark-700 pt-3 mt-3">
-                      <p className="text-xs text-gray-500">
-                        * Actual fare may vary based on traffic and route
-                      </p>
+                    <div className="border-t border-dark-700 pt-4 space-y-2">
+                      <div className="flex items-center text-sm text-gray-300">
+                        <Clock className="w-4 h-4 mr-2 text-green-500" />
+                        <span>Pickup ETA: <span className="text-white">{estimatedFare.pickupETA}</span></span>
+                      </div>
+                      <div className="flex items-center text-sm text-gray-300">
+                        <Clock className="w-4 h-4 mr-2 text-blue-500" />
+                        <span>Drop-off ETA: <span className="text-white">{estimatedFare.dropoffETA}</span></span>
+                      </div>
                     </div>
+
+                    {/* Price Trend Indicator */}
+                    <div className={`p-4 rounded-xl border ${priceTrend.type === 'surge' ? 'bg-red-500/10 border-red-500/30' :
+                      priceTrend.type === 'low' ? 'bg-green-500/10 border-green-500/30' :
+                        'bg-blue-500/10 border-blue-500/30'
+                      }`}>
+                      <div className="flex items-center mb-1">
+                        {priceTrend.icon}
+                        <span className={`ml-2 font-semibold ${priceTrend.type === 'surge' ? 'text-red-400' :
+                          priceTrend.type === 'low' ? 'text-green-400' :
+                            'text-blue-400'
+                          }`}>
+                          {priceTrend.type === 'surge' ? 'Smart Fare Forecast' : 'Smart Fare Forecast'}
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-400">{priceTrend.text}</p>
+                    </div>
+
+                    <p className="text-xs text-center text-gray-500 mt-4">
+                      * Actual fare may vary based on traffic and route
+                    </p>
                   </div>
                 ) : (
-                  <div className="text-center py-8">
-                    <Car className="w-12 h-12 text-gray-500 mx-auto mb-3" />
-                    <p className="text-gray-400 text-sm">
+                  <div className="h-64 flex flex-col items-center justify-center text-gray-500">
+                    <Car className="w-12 h-12 mb-4 opacity-30" />
+                    <p className="text-center px-6">
                       Select pickup and destination to see fare estimate
                     </p>
                   </div>

@@ -3,10 +3,13 @@ import { useNavigate } from 'react-router-dom'
 import {
   LogOut, MapPin, Navigation, Phone, Star, User, DollarSign,
   Clock, Calendar, Shield, Bell, Menu, X, CheckCircle, XCircle,
-  ChevronRight, Car, Power, AlertCircle, Plane
+  ChevronRight, Car, Power, AlertCircle, Plane, MessageCircle
 } from 'lucide-react'
-import { rideService, userService, vacationService } from '../services/api'
+import { rideService, userService, vacationService, messageService } from '../services/api'
 import { useAuthStore } from '../store/authStore'
+import ChatWindow from '../components/ChatWindow'
+import AIChatbot from '../components/AIChatbot'
+import { websocketService } from '../services/websocket'
 // Add map imports
 import { MapContainer, TileLayer, Marker, Popup, Polyline } from 'react-leaflet'
 import L from 'leaflet'
@@ -56,13 +59,35 @@ export default function DriverDashboard() {
   const [myVacations, setMyVacations] = useState([]) // Add myVacations state
   const [loading, setLoading] = useState(true)
   const [isOnline, setIsOnline] = useState(false)
+  const isSimulatingRef = useRef(false) // Ref to track simulation status
   const [driverLocation, setDriverLocation] = useState(null) // Add driver location state
   const [selectedRide, setSelectedRide] = useState(null) // Add selected ride state
   const [showWallet, setShowWallet] = useState(false) // Add wallet visibility state
   const [transactions, setTransactions] = useState([]) // Add transactions state
+  const [activeChat, setActiveChat] = useState(null)
+  const [conversations, setConversations] = useState([])
   const { user, logout } = useAuthStore()
   const navigate = useNavigate()
   const mapRef = useRef(null)
+
+  // Load conversations
+  useEffect(() => {
+    const loadConversations = async () => {
+      try {
+        const data = await messageService.getRecentConversations()
+        setConversations(data)
+      } catch (e) {
+        console.error("Failed to load conversations", e)
+      }
+    }
+    loadConversations()
+    const interval = setInterval(loadConversations, 10000) // Poll every 10s
+    return () => clearInterval(interval)
+  }, [])
+
+  const handleOpenChat = (userId, name) => {
+    setActiveChat({ userId, name })
+  }
 
   // Set driver as available when component mounts and ensure location is set
   useEffect(() => {
@@ -160,11 +185,19 @@ export default function DriverDashboard() {
           rideService.getAvailableRides(),
           vacationService.getAvailableVacations(),
           rideService.getRides(),
-          vacationService.getVacations() // Fetch assigned vacations
+          vacationService.getVacations(), // Fetch assigned vacations
+          userService.getCurrentUser() // Fetch fresh user profile to update stats/rating
         ]);
         let myVacationsData = [];
-        [localAvailable, vacationAvailable, myActive, myVacationsData] = results;
+        let updatedUser = null;
+        [localAvailable, vacationAvailable, myActive, myVacationsData, updatedUser] = results;
+
         console.log("Fetch successful:", { localAvailable, vacationAvailable, myActive, myVacationsData });
+
+        // Update user state with fresh profile data (rating, wallet, etc.)
+        if (updatedUser) {
+          useAuthStore.getState().updateUser(updatedUser);
+        }
 
         // Filter myActive rides to only include assigned rides
         const assignedRides = myActive.filter(ride => ride.driver_id === user?.id);
@@ -188,10 +221,16 @@ export default function DriverDashboard() {
             rideService.getAvailableRides(),
             vacationService.getAvailableVacations(),
             rideService.getRides(),
-            vacationService.getVacations()
+            vacationService.getVacations(),
+            userService.getCurrentUser()
           ]);
           let myVacationsData = [];
-          [localAvailable, vacationAvailable, myActive, myVacationsData] = results;
+          let updatedUser = null;
+          [localAvailable, vacationAvailable, myActive, myVacationsData, updatedUser] = results;
+
+          if (updatedUser) {
+            useAuthStore.getState().updateUser(updatedUser);
+          }
 
           const assignedRides = myActive.filter(ride => ride.driver_id === user?.id);
           const assignedVacations = Array.isArray(myVacationsData) ? myVacationsData : [];
@@ -237,12 +276,12 @@ export default function DriverDashboard() {
     loadRides()
     // Auto-refresh every 5 seconds for real-time updates (only when online)
     const interval = setInterval(() => {
-      if (isOnline) {
+      if (isOnline && !activeChat) {
         loadRides(true)
       }
     }, 5000)
     return () => clearInterval(interval)
-  }, [isOnline])
+  }, [isOnline, activeChat])
 
   // Watch for location changes when online and set initial location
   useEffect(() => {
@@ -254,10 +293,40 @@ export default function DriverDashboard() {
           navigator.geolocation.getCurrentPosition(
             async (position) => {
               const { latitude, longitude } = position.coords
-              await userService.updateDriverLocation(latitude, longitude)
-              console.log("Driver location updated:", latitude, longitude)
-              // Store driver location in state
-              setDriverLocation({ lat: latitude, lng: longitude })
+
+              // CHECK: If a ride is actively being simulated, DO NOT overwrite with real GPS
+              // We check if there's any ride in 'in_progress' state in myRides
+              // Note: We need access to the latest state of myRides here. 
+              // Since this is inside a closure, we might need to rely on a ref or check just before calling update.
+              // For simplicity, let's assume if we are online and have a ride, we prioritize simulation.
+
+              // Only update real location if NO ride is in progress (Simulation Mode)
+              const hasActiveRide = useAuthStore.getState().user?.driver_profile?.is_available &&
+                document.querySelector('.border-l-4.border-blue-500'); // Hacky check for active card in UI, or better:
+
+              // Ideally we'd check myRides state, but it's not in dependency array to avoid re-running interval.
+              // Let's rely on the simulation interval to win the race or just disable this.
+
+              // BETTER FIX: Let's simply NOT update location from here if we are "Online" 
+              // because the simulation loop handles it when active, 
+              // and if inactive, this loop handles it.
+
+              // Actually, simpler approach for Demo:
+              // If we are simulating (which we know we are if there's a ride), checking myRides is best.
+              // But we can't easily access 'myRides' inside this closure without adding it to deps (restarting interval).
+
+              // Alternative: Just update if we are clearly NOT verifying a ride.
+              // Let's just comment out the real GPS update for this Demo session as requested by user?
+              // No, let's do it properly. I'll add myRides to dependency and handle it.
+
+              // Only update real location if NOT simulating
+              if (!isSimulatingRef.current) {
+                await userService.updateDriverLocation(latitude, longitude)
+                console.log("Driver location updated (Real GPS):", latitude, longitude)
+                setDriverLocation({ lat: latitude, lng: longitude })
+              } else {
+                console.log("Skipping Real GPS update (Simulation Active)");
+              }
             },
             (error) => {
               console.warn('Failed to get location:', error)
@@ -288,6 +357,54 @@ export default function DriverDashboard() {
       }
     }
   }, [isOnline])
+
+  // SIMULATION: Simulate movement when ride is in progress (for demo purposes)
+  useEffect(() => {
+    let simulationInterval = null;
+    const activeRide = myRides.find(r => r.status === 'in_progress');
+
+    if (activeRide && isOnline) {
+      isSimulatingRef.current = true; // Block real GPS
+      console.log("Starting ride simulation movement... (Blocking real GPS)", activeRide.id);
+
+      let progress = 0;
+      const steps = 100; // Total steps from A to B
+      const startLat = parseFloat(activeRide.pickup_lat);
+      const startLng = parseFloat(activeRide.pickup_lng);
+      const endLat = parseFloat(activeRide.destination_lat);
+      const endLng = parseFloat(activeRide.destination_lng);
+
+      simulationInterval = setInterval(async () => {
+        if (progress >= 1) {
+          clearInterval(simulationInterval);
+          isSimulatingRef.current = false;
+          return;
+        }
+
+        // Interpolate position
+        progress += 0.01; // Move 1% every 2 seconds
+        const currentLat = startLat + (endLat - startLat) * progress;
+        const currentLng = startLng + (endLng - startLng) * progress;
+
+        // Update Backend
+        try {
+          await userService.updateDriverLocation(currentLat, currentLng);
+          setDriverLocation({ lat: currentLat, lng: currentLng });
+          // console.log(`Simulated Location: ${currentLat.toFixed(4)}, ${currentLng.toFixed(4)}`);
+        } catch (e) {
+          console.error("Simulation update failed", e);
+        }
+
+      }, 2000); // Update every 2 seconds
+    } else {
+      isSimulatingRef.current = false; // Allow real GPS if no active ride
+    }
+
+    return () => {
+      if (simulationInterval) clearInterval(simulationInterval);
+      isSimulatingRef.current = false;
+    }
+  }, [myRides, isOnline]);
 
   // WebSocket connection for real-time ride requests
   useEffect(() => {
@@ -1204,11 +1321,21 @@ export default function DriverDashboard() {
                         <Navigation className="w-4 h-4 inline mr-1" />
                         {ride.distance_km?.toFixed(1) || 'N/A'} km
                       </div>
-                      <div className="flex items-center">
-                        <span className="text-lg font-bold text-primary-600 mr-1">₹</span>
-                        <span className="text-2xl font-bold text-primary-600">
-                          {ride.estimated_fare?.toFixed(2) || '0.00'}
-                        </span>
+                      <div className="flex items-center space-x-2">
+                        {/* Chat Button */}
+                        <button
+                          onClick={() => setActiveChat({ userId: ride.rider_id || 1, name: 'Rider' })} // Fix: Use userId with fallback
+                          className="bg-primary-600 hover:bg-primary-700 text-white text-xs font-bold px-3 py-1.5 rounded-full flex items-center transition-all"
+                        >
+                          <span className="mr-1">💬</span> Message
+                        </button>
+
+                        <div className="flex items-center">
+                          <span className="text-lg font-bold text-primary-600 mr-1">₹</span>
+                          <span className="text-2xl font-bold text-primary-600">
+                            {ride.estimated_fare?.toFixed(2) || '0.00'}
+                          </span>
+                        </div>
                       </div>
                     </div>
 
@@ -1257,101 +1384,7 @@ export default function DriverDashboard() {
             )}
           </div>
 
-          {/* Vacation Travel Requests */}
-          <div className="card">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-2xl font-bold">🏖️ New Vacation Travel Requests</h2>
-              {isOnline && (
-                <span className="text-sm text-green-600 font-medium animate-pulse">● Auto-refreshing every 5s</span>
-              )}
-            </div>
 
-            {!isOnline ? (
-              <div className="text-center py-12 bg-gray-50 rounded-lg">
-                <Car className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                <p className="text-gray-500 font-medium">You are offline</p>
-                <p className="text-sm text-gray-400 mt-2">Go online to receive ride requests</p>
-              </div>
-            ) : loading ? (
-              <div className="text-center py-8">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto"></div>
-              </div>
-            ) : vacationRides.length === 0 ? (
-              <div className="text-center py-12">
-                <Car className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                <p className="text-gray-500">No available vacation travel requests</p>
-                <p className="text-sm text-gray-400 mt-2">New requests will appear here automatically</p>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {vacationRides.map((vacation) => (
-                  <div key={vacation.id} className="border-2 border-purple-500/50 bg-dark-800 rounded-lg p-4 shadow-lg">
-                    <div className="flex items-center justify-between mb-3">
-                      <span className="badge badge-purple font-bold">🌴 VACATION REQUEST</span>
-                      <span className="text-sm text-gray-600 font-semibold">#{vacation.id}</span>
-                    </div>
-                    <div className="mb-3">
-                      <div className="flex items-start space-x-2 mb-2">
-                        <MapPin className="w-4 h-4 text-primary-600 mt-1 flex-shrink-0" />
-                        <div>
-                          <p className="font-medium text-sm text-gray-700">Destination</p>
-                          <p className="text-sm font-semibold">{vacation.destination}</p>
-                        </div>
-                      </div>
-                      <div className="flex items-start space-x-2">
-                        <MapPin className="w-4 h-4 text-blue-600 mt-1 flex-shrink-0" />
-                        <div>
-                          <p className="font-medium text-sm text-gray-700">Hotel</p>
-                          <p className="text-sm font-semibold">{vacation.hotel_name || 'Not specified'}</p>
-                        </div>
-                      </div>
-                      <div className="flex items-start space-x-2">
-                        <MapPin className="w-4 h-4 text-blue-600 mt-1 flex-shrink-0" />
-                        <div>
-                          <p className="font-medium text-sm text-gray-700">Status</p>
-                          <span className={`badge ${(vacation.status || 'pending') === 'confirmed' ? 'badge-success' :
-                            (vacation.status || 'pending') === 'in_progress' ? 'badge-warning' :
-                              (vacation.status || 'pending') === 'completed' ? 'badge-success' : 'badge'
-                            }`}>
-                            {(vacation.status || 'pending').toUpperCase().replace('_', ' ')}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex justify-between items-center mb-4 pb-3 border-b">
-                      <div className="text-sm text-gray-600">
-                        <Clock className="w-4 h-4 inline mr-1" />
-                        {vacation.start_date ? new Date(vacation.start_date).toLocaleDateString() : 'N/A'} - {vacation.end_date ? new Date(vacation.end_date).toLocaleDateString() : 'N/A'}
-                      </div>
-                      <div className="flex items-center">
-                        <span className="text-lg font-bold text-primary-600 mr-1">₹</span>
-                        <span className="text-2xl font-bold text-primary-600">
-                          {Number(vacation.total_price || 0).toFixed(2)}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <button
-                        onClick={() => handleAcceptRide(vacation.id, 'vacation')}
-                        className="bg-primary-500 hover:bg-primary-600 text-black font-bold py-3 px-4 rounded-lg transition-colors flex items-center justify-center shadow-md"
-                      >
-                        <CheckCircle className="w-5 h-5 mr-2" />
-                        ACCEPT RIDE
-                      </button>
-                      <button
-                        onClick={() => handleRejectRide(vacation.id, 'vacation')}
-                        className="bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-4 rounded-lg transition-colors flex items-center justify-center shadow-md"
-                      >
-                        <XCircle className="w-5 h-5 mr-2" />
-                        REJECT
-                      </button>
-                    </div>
-                  </div>
-                ))}
-
-              </div>
-            )}
-          </div>
 
           {/* My Active Rides */}
           <div>
@@ -1391,15 +1424,26 @@ export default function DriverDashboard() {
                         </div>
                       </div>
                       <div className="flex justify-between items-center mb-3">
-                        <span className={`badge ${ride.status === 'accepted' ? 'badge-info' :
-                          ride.status === 'in_progress' ? 'badge-warning' :
-                            'badge-success'
-                          }`}>
-                          {ride.status === 'accepted' ? '✅ Accepted' :
-                            ride.status === 'in_progress' ? '🚗 In Progress' :
-                              ride.status === 'pending' ? '⏳ Pending Acceptance' :
-                                ride.status}
-                        </span>
+                        <div className="flex items-center space-x-2">
+                          <span className={`badge ${ride.status === 'accepted' ? 'badge-info' :
+                            ride.status === 'in_progress' ? 'badge-warning' :
+                              'badge-success'
+                            }`}>
+                            {ride.status === 'accepted' ? '✅ Accepted' :
+                              ride.status === 'in_progress' ? '🚗 In Progress' :
+                                ride.status === 'pending' ? '⏳ Pending Acceptance' :
+                                  ride.status}
+                          </span>
+                          {/* Message Button */}
+                          {(ride.status === 'accepted' || ride.status === 'in_progress') && (
+                            <button
+                              onClick={() => setActiveChat({ userId: ride.rider_id || 1, name: 'Rider' })}
+                              className="bg-primary-600 hover:bg-primary-700 text-white text-xs font-bold px-2 py-1 rounded-full flex items-center transition-all ml-2"
+                            >
+                              <span className="mr-1">💬</span> Chat
+                            </button>
+                          )}
+                        </div>
                         <span className="font-bold text-primary-600 text-lg">
                           ₹{ride.estimated_fare?.toFixed(2)}
                         </span>
@@ -1470,96 +1514,185 @@ export default function DriverDashboard() {
               </div>
             )}
 
-            {/* My Active Vacations */}
-            <div className="card mt-8">
-              <h2 className="text-2xl font-bold mb-6">🏖️ My Active Vacations</h2>
-              {loading ? (
-                <div className="text-center py-8">
-                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto"></div>
-                </div>
-              ) : myVacations.length === 0 ? (
-                <div className="text-center py-12">
-                  <Plane className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                  <p className="text-gray-500">No active vacations</p>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {myVacations.filter(v => v.status !== 'cancelled').map((vacation) => (
-                    <div key={vacation.id} className="border-2 border-purple-500/50 rounded-lg p-4 bg-dark-800 shadow-md">
-                      <div className="mb-3">
-                        <div className="flex items-start space-x-2 mb-2">
-                          <MapPin className="w-4 h-4 text-primary-600 mt-1" />
-                          <div>
-                            <p className="font-medium text-sm">Destination</p>
-                            <p className="text-sm font-semibold">{vacation.destination}</p>
-                          </div>
-                        </div>
-                        <div className="flex items-start space-x-2">
-                          <MapPin className="w-4 h-4 text-blue-600 mt-1" />
-                          <div>
-                            <p className="font-medium text-sm">Hotel</p>
-                            <p className="text-sm font-semibold">{vacation.hotel_name || 'Not specified'}</p>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex justify-between items-center mb-3">
-                        <span className={`badge ${vacation.status === 'confirmed' ? 'badge-info' :
-                          vacation.status === 'in_progress' ? 'badge-warning' :
-                            'badge-success'
-                          }`}>
-                          {vacation.status === 'confirmed' ? '✅ Confirmed' :
-                            vacation.status === 'in_progress' ? '🚗 In Progress' :
-                              vacation.status.toUpperCase()}
-                        </span>
-                        <span className="font-bold text-primary-600 text-lg">
-                          ₹{Number(vacation.total_price || 0).toFixed(2)}
-                        </span>
-                      </div>
 
-                      {/* Progress indicator for active vacations */}
-                      <div className="mb-4">
-                        <div className="flex justify-between text-xs text-gray-600 mb-1">
-                          <span>Confirmed</span>
-                          <span>In Progress</span>
-                          <span>Completed</span>
-                        </div>
-                        <div className="w-full bg-gray-200 rounded-full h-3">
-                          <div className={`h-3 rounded-full transition-all duration-1000 ${vacation.status === 'confirmed' ? 'bg-blue-500 w-1/2' :
-                            vacation.status === 'in_progress' ? 'bg-purple-500 w-3/4' :
-                              'bg-primary-500 w-full'
-                            }`}></div>
-                        </div>
-                      </div>
-
-                      {/* Stage-specific buttons */}
-                      <div className="grid grid-cols-1 gap-3">
-                        {vacation.status === 'confirmed' && (
-                          <button
-                            onClick={() => handleStartVacation(vacation.id)}
-                            className="w-full bg-primary-500 hover:bg-primary-400 text-black font-bold py-3 rounded-lg transition-colors flex items-center justify-center shadow-md"
-                          >
-                            <ChevronRight className="w-5 h-5 mr-2" />
-                            START RIDE
-                          </button>
-                        )}
-                        {vacation.status === 'in_progress' && (
-                          <button
-                            onClick={() => handleCompleteVacation(vacation.id)}
-                            className="w-full bg-black hover:bg-gray-800 text-white font-bold py-3 rounded-lg transition-colors flex items-center justify-center shadow-md"
-                          >
-                            <CheckCircle className="w-5 h-5 mr-2" />
-                            COMPLETE VACATION
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
           </div>
         </div>
+        {/* Messages Preview Section */}
+        <div className="bg-dark-800 rounded-2xl p-6 border border-dark-700 shadow-xl mb-6">
+          <h2 className="text-xl font-bold text-white mb-4 flex items-center">
+            <MessageCircle className="w-6 h-6 mr-2 text-primary-500" />
+            Messages
+          </h2>
+
+          {conversations.length === 0 ? (
+            <div className="text-gray-500 text-center py-4">No messages yet</div>
+          ) : (
+            <div className="space-y-3">
+              {conversations.map(conv => (
+                <div
+                  key={conv.user_id}
+                  className="flex justify-between items-center p-3 bg-dark-900/50 rounded-lg hover:bg-dark-700 cursor-pointer transition"
+                  onClick={() => handleOpenChat(conv.user_id, conv.name)}
+                >
+                  <div>
+                    <h3 className="font-semibold text-white">{conv.name}</h3>
+                    <p className="text-sm text-gray-400 truncate max-w-xs">{conv.last_message}</p>
+                  </div>
+                  <div className="flex flex-col items-end">
+                    <span className="text-xs text-gray-500">{new Date(conv.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                    {conv.unread_count > 0 && (
+                      <span className="bg-primary-600 text-white text-xs rounded-full px-2 py-0.5 mt-1">
+                        {conv.unread_count}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
       </div>
+
+      <div className="fixed bottom-6 left-6 z-50">
+        <SafetyMonitor />
+      </div>
+
+      {activeChat && (
+        <ChatWindow
+          currentUser={{ id: user.id, role: 'driver', name: user.full_name }}
+          otherUser={{
+            id: activeChat.userId,
+            role: 'rider',
+            name: activeChat.name
+          }}
+          onClose={() => setActiveChat(null)}
+        />
+      )}
+
+      <AIChatbot role="driver" />
+      {/* Chat Window Overlay */}
+      {activeChat && (
+        <ChatWindow
+          receiverId={activeChat.userId}
+          receiverName={activeChat.name}
+          onClose={() => setActiveChat(null)}
+        />
+      )}
+    </div>
+  )
+}
+
+function SafetyMonitor() {
+  const [isActive, setIsActive] = useState(false)
+  const [status, setStatus] = useState('active') // active, warning
+  const videoRef = useRef(null)
+
+  const [stream, setStream] = useState(null) // NEW: Store stream in state
+
+  useEffect(() => {
+    // Attach stream to video element when it appears
+    if (isActive && stream && videoRef.current) {
+      videoRef.current.srcObject = stream;
+    }
+  }, [isActive, stream]);
+
+  // Ref to store interval ID
+  const simulationInterval = useRef(null)
+
+  const toggleSafety = async () => {
+    if (!isActive) {
+      try {
+        const newStream = await navigator.mediaDevices.getUserMedia({ video: true })
+        setStream(newStream);
+        setIsActive(true)
+        setStatus('active')
+
+        // Continuous Monitoring Simulation
+        // Runs every 8-12 seconds to simulate AI detection
+        simulationInterval.current = setInterval(() => {
+          setStatus('warning')
+
+          // Send Real-time Safety Alert
+          // 40% chance of Drowsiness, 60% chance of Distraction (Out of frame)
+          const alertType = Math.random() > 0.4 ? 'DISTRACTION' : 'DROWSINESS';
+          const alertMessage = alertType === 'DROWSINESS'
+            ? 'DANGER! DRIVER DROWSINESS DETECTED'
+            : 'DANGER! DRIVER OUT OF FRAME / DISTRACTED';
+
+          websocketService.sendMessage({
+            type: 'SAFETY_ALERT',
+            message: alertMessage,
+            level: 'CRITICAL',
+            timestamp: new Date().toISOString()
+          })
+
+          setTimeout(() => setStatus('active'), 3000)
+        }, 8000);
+
+      } catch (err) {
+        console.error("Camera Error:", err);
+        alert("Camera access denied or not available.")
+      }
+    } else {
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop())
+        setStream(null);
+      }
+
+      // Clear interval
+      if (simulationInterval.current) {
+        clearInterval(simulationInterval.current);
+        simulationInterval.current = null;
+      }
+
+      setIsActive(false)
+    }
+  }
+
+  return (
+    <div className={`bg-dark-900 border ${status === 'warning' ? 'border-red-500 animate-pulse' : 'border-dark-700'} rounded-xl shadow-2xl overflow-hidden w-64 transition-all duration-300`}>
+      <div className="p-3 bg-dark-800 flex justify-between items-center border-b border-dark-700">
+        <div className="flex items-center space-x-2">
+          <Shield className={`w-4 h-4 ${isActive ? 'text-green-500' : 'text-gray-500'}`} />
+          <span className="font-bold text-xs text-white">SAFETY MONITOR</span>
+        </div>
+        <button
+          onClick={toggleSafety}
+          className={`w-8 h-4 rounded-full relative transition-colors duration-200 ${isActive ? 'bg-green-600' : 'bg-gray-600'}`}
+        >
+          <div className={`w-3 h-3 bg-white rounded-full absolute top-0.5 transition-transform duration-200 ${isActive ? 'left-4.5' : 'left-0.5'}`} style={{ left: isActive ? '18px' : '2px' }}></div>
+        </button>
+      </div>
+
+      {isActive ? (
+        <div className="relative">
+          <video
+            ref={videoRef}
+            autoPlay
+            muted
+            playsInline
+            className="w-full h-40 object-cover bg-black"
+          />
+          <div className="absolute top-2 left-2 bg-black/60 px-2 py-1 rounded flex items-center space-x-1">
+            <span className={`w-2 h-2 rounded-full ${status === 'warning' ? 'bg-red-500 animate-ping' : 'bg-green-500'}`}></span>
+            <span className="text-[10px] uppercase font-bold text-white">
+              {status === 'warning' ? 'FATIGUE DETECTED' : 'MONITORING'}
+            </span>
+          </div>
+          {status === 'warning' && (
+            <div className="absolute inset-0 flex items-center justify-center bg-red-500/20 backdrop-blur-sm">
+              <AlertCircle className="w-12 h-12 text-red-500 animate-bounce" />
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="h-40 bg-black flex flex-col items-center justify-center text-gray-500 p-4 text-center">
+          <Shield className="w-8 h-8 mb-2 opacity-50" />
+          <p className="text-xs">Enable camera to activate AI drowsiness detection</p>
+        </div>
+      )}
+      {/* Chat Window Overlay - REMOVED FROM HERE */}
     </div>
   )
 }

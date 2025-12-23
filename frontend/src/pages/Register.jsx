@@ -287,7 +287,7 @@ export default function Register() {
                 className="h-4 w-4 text-primary-500 focus:ring-primary-500 border-dark-600 rounded bg-dark-900"
               />
               <label htmlFor="terms" className="ml-2 block text-xs text-gray-400">
-                I agree to the <a href="#" className="text-primary-500 hover:underline">Terms of Service</a> and <a href="#" className="text-primary-500 hover:underline">Privacy Policy</a>
+                I agree to the <Link to="/terms" target="_blank" rel="noopener noreferrer" className="text-primary-500 hover:underline">Terms of Service</Link> and <Link to="/policy" target="_blank" rel="noopener noreferrer" className="text-primary-500 hover:underline">Privacy Policy</Link>
               </label>
             </div>
 

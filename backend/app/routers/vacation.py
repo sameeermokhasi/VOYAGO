@@ -5,19 +5,32 @@ from typing import List
 import random
 import string
 from datetime import datetime
+from pydantic import BaseModel # Added
 
 from app.database import get_db
 from app.models import User, Vacation, UserRole, Transaction, LoyaltyPoints
 from app.schemas import VacationCreate, VacationResponse
 from app.auth import get_current_active_user
-from app.schemas import VacationCreate, VacationResponse
-from app.auth import get_current_active_user
 from app.routers.vacation_scheduler import schedule_next_ride
 from app.utils import calculate_distance, calculate_fare
-from app.models import UserRole
+from app.services.ai_visualizer import visualizer # Added
 import json
 
 router = APIRouter()
+
+class VisualizeRequest(BaseModel):
+    destination: str
+    trip_type: str = "leisure"
+
+@router.post("/visualize")
+async def visualize_trip(request: VisualizeRequest):
+    try:
+        script = visualizer.generate_script(request.destination, request.trip_type)
+        return {"script": script}
+    except Exception as e:
+        print(f"Visualization Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 def generate_booking_reference() -> str:
     """Generate a unique booking reference"""
@@ -660,3 +673,45 @@ async def get_loyalty_points(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Internal Server Error: {str(e)}"
         )
+@router.patch("/{vacation_id}")
+async def update_vacation(
+    vacation_id: int,
+    vacation_data: VacationCreate,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Update a vacation booking"""
+    vacation = db.query(Vacation).filter(Vacation.id == vacation_id).first()
+    
+    if not vacation:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Vacation booking not found"
+        )
+    
+    if vacation.user_id != current_user.id and current_user.role != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to update this booking"
+        )
+    
+    # We only allow updating if it's not completed/cancelled
+    if vacation.status in ["completed", "cancelled"]:
+         raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot update vacation in {vacation.status} status"
+        )
+
+    # Update fields
+    if vacation_data.activities:
+        vacation.activities = vacation_data.activities
+    if vacation_data.schedule:
+        vacation.schedule = vacation_data.schedule
+    if vacation_data.flight_details:
+        vacation.flight_details = vacation_data.flight_details
+    if vacation_data.meal_preferences:
+        vacation.meal_preferences = vacation_data.meal_preferences
+        
+    db.commit()
+    db.refresh(vacation)
+    return vacation

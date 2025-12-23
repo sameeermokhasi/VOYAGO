@@ -20,12 +20,15 @@ const RateRideModal = ({ ride, onClose, onRateSuccess }) => {
         setError(null);
 
         try {
+            console.log('Submitting rating for ride:', ride.id, 'Rating:', rating, 'Feedback:', feedback);
             await rideService.rateRide(ride.id, rating, feedback);
+            console.log('Rating submitted successfully');
             onRateSuccess();
             onClose();
         } catch (err) {
             console.error('Failed to rate ride:', err);
-            setError('Failed to submit rating. Please try again.');
+            const errorMessage = err.response?.data?.detail || 'Failed to submit rating. Please try again.';
+            setError(errorMessage);
         } finally {
             setIsSubmitting(false);
         }

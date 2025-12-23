@@ -1,9 +1,12 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { MapPin, Plane, Train, Car, Calendar, Clock, Plus, Trash2 } from 'lucide-react'
 import { vacationService, vacationSchedulerService } from '../services/api'
+import { useLocation } from 'react-router-dom'
 import ChromaGrid from './ChromaGrid'
 
 export default function VacationSchedulePlanner() {
+  const location = useLocation();
+
   const [tripDetails, setTripDetails] = useState({
     destination: '',
     startDate: '',
@@ -23,12 +26,6 @@ export default function VacationSchedulePlanner() {
     flightNumber: ''
   })
 
-  const [mealTimings, setMealTimings] = useState({
-    breakfast: '',
-    lunch: '',
-    dinner: ''
-  })
-
   const [activities, setActivities] = useState([])
 
   const [currentActivity, setCurrentActivity] = useState({
@@ -37,6 +34,28 @@ export default function VacationSchedulePlanner() {
     location: '',
     description: ''
   })
+
+  // Pre-fill from AI Suggestion
+  useEffect(() => {
+    if (location.state && location.state.aiSuggestion && location.state.aiSuggestion.details) {
+      const details = location.state.aiSuggestion.details;
+      console.log("Auto-filling from AI:", details);
+
+      setTripDetails(prev => ({
+        ...prev,
+        destination: details.destination || '',
+        startDate: details.startDate || '',
+        endDate: details.endDate || '',
+        passengers: details.passengers || 1,
+        vehicleType: details.vehicleType || 'economy',
+        hotelName: details.hotelName || ''
+      }));
+
+      if (details.activities) {
+        setActivities(details.activities);
+      }
+    }
+  }, [location.state]);
 
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -60,13 +79,19 @@ export default function VacationSchedulePlanner() {
     e.preventDefault()
     setIsSubmitting(true)
 
+    // Validate activities
+    if (activities.length === 0) {
+      alert('Please schedule at least one activity for your vacation.')
+      setIsSubmitting(false)
+      return
+    }
+
     try {
       // Create schedule object
       const schedule = {
         flightDetails: flightDetails.flightNumber ?
           `${flightDetails.departureCity} to ${flightDetails.arrivalCity} (${flightDetails.flightNumber})` :
           '',
-        mealTimings: `Breakfast: ${mealTimings.breakfast || 'N/A'}, Lunch: ${mealTimings.lunch || 'N/A'}, Dinner: ${mealTimings.dinner || 'N/A'}`,
         activities: activities.map(a => `${a.date} ${a.time} - ${a.location}: ${a.description}`).join('; ')
       }
 
@@ -83,7 +108,7 @@ export default function VacationSchedulePlanner() {
         hotel_address: tripDetails.hotelAddress,
         schedule: JSON.stringify(schedule),
         flight_details: JSON.stringify(flightDetails),
-        meal_preferences: JSON.stringify(mealTimings),
+        meal_preferences: '{}',
         activities: JSON.stringify(activities)
       }
 
@@ -228,6 +253,7 @@ export default function VacationSchedulePlanner() {
                   onChange={(e) => setTripDetails({ ...tripDetails, hotelName: e.target.value })}
                   className="input-field text-white"
                   placeholder="e.g., Taj Exotica Resort"
+                  required
                 />
               </div>
 
@@ -315,6 +341,7 @@ export default function VacationSchedulePlanner() {
                   onChange={(e) => setFlightDetails({ ...flightDetails, departureCity: e.target.value })}
                   className="input-field text-white"
                   placeholder="e.g., Bangalore"
+                  required
                 />
               </div>
 
@@ -326,6 +353,7 @@ export default function VacationSchedulePlanner() {
                   onChange={(e) => setFlightDetails({ ...flightDetails, arrivalCity: e.target.value })}
                   className="input-field text-white"
                   placeholder="e.g., Goa"
+                  required
                 />
               </div>
 
@@ -336,6 +364,7 @@ export default function VacationSchedulePlanner() {
                   value={flightDetails.departureTime}
                   onChange={(e) => setFlightDetails({ ...flightDetails, departureTime: e.target.value })}
                   className="input-field text-white [color-scheme:dark]"
+                  required
                 />
               </div>
 
@@ -346,6 +375,7 @@ export default function VacationSchedulePlanner() {
                   value={flightDetails.arrivalTime}
                   onChange={(e) => setFlightDetails({ ...flightDetails, arrivalTime: e.target.value })}
                   className="input-field text-white [color-scheme:dark]"
+                  required
                 />
               </div>
 
@@ -357,50 +387,13 @@ export default function VacationSchedulePlanner() {
                   onChange={(e) => setFlightDetails({ ...flightDetails, flightNumber: e.target.value })}
                   className="input-field text-white"
                   placeholder="e.g., AI-123 or 12345"
+                  required
                 />
               </div>
             </div>
           </div>
 
-          {/* Meal Timings */}
-          <div className="card">
-            <h2 className="text-2xl font-bold mb-6 flex items-center">
-              <Calendar className="w-6 h-6 mr-2" />
-              Meal Preferences
-            </h2>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">Breakfast Time</label>
-                <input
-                  type="time"
-                  value={mealTimings.breakfast}
-                  onChange={(e) => setMealTimings({ ...mealTimings, breakfast: e.target.value })}
-                  className="input-field text-white [color-scheme:dark]"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">Lunch Time</label>
-                <input
-                  type="time"
-                  value={mealTimings.lunch}
-                  onChange={(e) => setMealTimings({ ...mealTimings, lunch: e.target.value })}
-                  className="input-field text-white [color-scheme:dark]"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">Dinner Time</label>
-                <input
-                  type="time"
-                  value={mealTimings.dinner}
-                  onChange={(e) => setMealTimings({ ...mealTimings, dinner: e.target.value })}
-                  className="input-field text-white [color-scheme:dark]"
-                />
-              </div>
-            </div>
-          </div>
 
           {/* Activities Schedule */}
           <div className="card">

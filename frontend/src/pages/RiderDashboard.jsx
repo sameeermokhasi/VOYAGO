@@ -1,23 +1,43 @@
-import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
-import { Car, MapPin, Clock, DollarSign, Plane, AlertCircle, CheckCircle, Navigation as NavIcon, XCircle } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
+import { Car, MapPin, Clock, AlertCircle, CheckCircle, Navigation as NavIcon, XCircle, Search, LogOut, ArrowRight, Plane, User, Activity } from 'lucide-react'
 import { rideService, vacationService } from '../services/api'
 import { useAuthStore } from '../store/authStore'
 import { websocketService } from '../services/websocket'
 import DriverRouteMap from '../components/DriverRouteMap'
 import VacationSchedulePlanner from '../components/VacationSchedulePlanner'
+import ChatWindow from '../components/ChatWindow' // Import ChatWindow
 import RateRideModal from '../components/RateRideModal'
+import AIChatbot from '../components/AIChatbot'
+import MotionEaseOverlay from '../components/MotionEaseOverlay'
 
 export default function RiderDashboard() {
   const [rides, setRides] = useState([])
   const [vacations, setVacations] = useState([]) // Add vacations state
   const [loading, setLoading] = useState(true)
   const [driverLocations, setDriverLocations] = useState({})
+  const [activeChat, setActiveChat] = useState(null); // Chat State
   const [showVacationPlanner, setShowVacationPlanner] = useState(false)
   const [showRateModal, setShowRateModal] = useState(false)
   const [rideToRate, setRideToRate] = useState(null)
+  const [showSafetyAlert, setShowSafetyAlert] = useState(false) // NEW: Safety Alert State
+  const [showMotionEase, setShowMotionEase] = useState(false) // NEW: Motion Ease State
+  const alertAcknowledged = useRef(false) // Track if alert has been seen
   const [error, setError] = useState(null)
   const { user, logout } = useAuthStore()
+
+  // Safety Alert Listener
+  useEffect(() => {
+    const handleSafetyAlert = (data) => {
+      // Only show alert if it hasn't been acknowledged yet
+      if (data && data.type === 'SAFETY_ALERT' && !alertAcknowledged.current) {
+        setShowSafetyAlert(true);
+      }
+    };
+
+    websocketService.addListener('message', handleSafetyAlert);
+    return () => websocketService.removeListener('message', handleSafetyAlert);
+  }, []);
 
   useEffect(() => {
     loadRides()
@@ -25,12 +45,17 @@ export default function RiderDashboard() {
     const timeout = setTimeout(loadRides, 500)
 
     // Auto-refresh every 5 seconds for real-time updates
-    const interval = setInterval(loadRides, 5000)
+    // Stop refreshing if chat is open to prevent UI resets/glitches
+    const interval = setInterval(() => {
+      if (!activeChat) {
+        loadRides();
+      }
+    }, 5000)
     return () => {
       clearInterval(interval)
       clearTimeout(timeout)
     }
-  }, [])
+  }, [activeChat])
 
   // WebSocket listener for real-time updates
   useEffect(() => {
@@ -284,13 +309,30 @@ export default function RiderDashboard() {
             {showVacationPlanner ? 'Hide Vacation Planner' : 'Show Vacation Planner'}
           </button>
 
-          <button
-            onClick={loadRides}
-            className="p-2 bg-dark-800 hover:bg-dark-700 rounded-full transition-colors text-gray-400 hover:text-white"
-            title="Refresh Rides"
-          >
-            <Clock className={`w-6 h-6 ${loading ? 'animate-spin' : ''}`} />
-          </button>
+          <div className="flex items-center space-x-3">
+            {/* Motion Ease Toggle */}
+            <button
+              onClick={() => setShowMotionEase(!showMotionEase)}
+              className={`flex items-center space-x-2 px-4 py-2 rounded-lg border transition-all ${showMotionEase
+                  ? 'bg-green-900/50 border-green-500 text-green-300 shadow-[0_0_15px_rgba(34,197,94,0.3)]'
+                  : 'bg-indigo-900 border-indigo-700 text-gray-200 hover:border-gray-500'
+                }`}
+              title="Toggle Anti-Motion Sickness Mode"
+            >
+              <Activity className={`w-5 h-5 ${showMotionEase ? 'animate-pulse' : ''}`} />
+              <span className="hidden md:inline font-bold">
+                {showMotionEase ? 'Wellness Mode ON 😌' : 'Wellness Mode OFF'}
+              </span>
+            </button>
+
+            <button
+              onClick={loadRides}
+              className="p-2 bg-dark-800 hover:bg-dark-700 rounded-full transition-colors text-gray-400 hover:text-white"
+              title="Refresh Rides"
+            >
+              <Clock className={`w-6 h-6 ${loading ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
         </div>
 
         {/* Vacation Schedule Planner */}
@@ -423,9 +465,23 @@ export default function RiderDashboard() {
                     <p className="text-xs text-gray-400">Ride #{activeRide.id}</p>
                   </div>
                 </div>
-                <span className={`${getStatusBadge(activeRide.status)} text-xs`}>
-                  {activeRide.status.toUpperCase()}
-                </span>
+                <div className="flex items-center space-x-2">
+                  {['accepted', 'in_progress'].includes(activeRide.status) ? (
+                    <button
+                      onClick={() => setActiveChat({ id: activeRide.driver_id || 2, name: 'Driver' })}
+                      className="bg-primary-600 hover:bg-primary-700 text-white text-xs font-bold px-3 py-1.5 rounded-full flex items-center transition-all"
+                    >
+                      <span className="mr-1">💬</span> Message
+                    </button>
+                  ) : (
+                    <div className="hidden md:block text-xs text-gray-500 italic mr-2">
+                      {activeRide.status === 'pending' ? 'Waiting for driver...' : ''}
+                    </div>
+                  )}
+                  <span className={`${getStatusBadge(activeRide.status)} text-xs`}>
+                    {activeRide.status.toUpperCase()}
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -603,6 +659,50 @@ export default function RiderDashboard() {
           ride={rideToRate}
           onClose={() => setShowRateModal(false)}
           onRateSuccess={handleRateSuccess}
+        />
+      )}
+
+      {/* NEW: Safety Alert Modal */}
+      {showSafetyAlert && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-red-900/40 backdrop-blur-sm animate-in fade-in zoom-in duration-300">
+          <div className="bg-dark-900 border-2 border-red-600 rounded-2xl p-8 max-w-md w-full shadow-2xl relative overflow-hidden">
+            <div className="absolute inset-0 bg-red-600/10 animate-pulse"></div>
+            <div className="relative z-10 text-center">
+              <div className="mx-auto w-20 h-20 bg-red-600 rounded-full flex items-center justify-center mb-6 animate-bounce">
+                <AlertCircle className="w-12 h-12 text-white" />
+              </div>
+              <h2 className="text-3xl font-black text-white mb-2 tracking-wider">DANGER DETECTED</h2>
+              <p className="text-xl text-red-400 font-bold mb-6">DRIVER ALERT SYSTEM TRIGGERED</p>
+              <p className="text-gray-300 text-sm mb-8">
+                The AI Monitor has detected an issue (Drowsiness or Driver Distraction). Please contact the driver immediately.
+              </p>
+              <button
+                onClick={() => {
+                  setShowSafetyAlert(false);
+                  alertAcknowledged.current = true; // Prevent future alerts
+                }}
+                className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-4 rounded-xl text-lg transition-transform hover:scale-105 active:scale-95"
+              >
+                ACKNOWLEDGE ALERT
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* NEW: Motion Ease Overlay */}
+      {showMotionEase && (
+        <MotionEaseOverlay onClose={() => setShowMotionEase(false)} />
+      )}
+
+      <AIChatbot role="rider" />
+
+      {/* Chat Window Overlay */}
+      {activeChat && (
+        <ChatWindow
+          receiverId={activeChat.id}
+          receiverName={activeChat.name}
+          onClose={() => setActiveChat(null)}
         />
       )}
     </div>

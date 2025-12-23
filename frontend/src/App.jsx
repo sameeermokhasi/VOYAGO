@@ -1,10 +1,12 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useAuthStore } from './store/authStore'
 import { useEffect } from 'react'
 import { websocketService } from './services/websocket'
 
 // Components
 import Navbar from './components/Navbar'
+
+// Pages
 
 // Pages
 import Landing from './pages/Landing'
@@ -22,6 +24,10 @@ import FixedPackages from './pages/FixedPackages'
 import Wallet from './pages/Wallet'
 import Profile from './pages/Profile'
 import RideHistory from './pages/RideHistory'
+import DriverMessages from './pages/DriverMessages'
+import RiderMessages from './pages/RiderMessages'
+import TermsPage from './pages/TermsPage'
+import PolicyPage from './pages/PolicyPage'
 
 function ProtectedRoute({ children, allowedRoles }) {
   const { isAuthenticated, user, role } = useAuthStore()
@@ -64,10 +70,20 @@ function App() {
   console.log('App render:', { isAuthenticated, user, role })
 
   // Initialize auth from storage and connect to WebSocket on app load
+  // Initialize auth from storage on app load
   useEffect(() => {
     useAuthStore.getState().initFromStorage()
-    websocketService.connect()
   }, [])
+
+  // Connect to WebSocket when authenticated
+  useEffect(() => {
+    if (isAuthenticated) {
+      console.log('User authenticated, connecting to WebSocket...');
+      websocketService.connect();
+    } else {
+      websocketService.disconnect();
+    }
+  }, [isAuthenticated])
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -95,6 +111,9 @@ function App() {
           isAuthenticated ? <Navigate to="/" replace /> : <Register />
         } />
 
+        <Route path="/terms" element={<TermsPage />} />
+        <Route path="/policy" element={<PolicyPage />} />
+
         <Route path="/rider/*" element={
           <ProtectedRoute allowedRoles={['rider']}>
             <Routes>
@@ -106,6 +125,7 @@ function App() {
               <Route path="wallet" element={<Wallet />} />
               <Route path="profile" element={<Profile />} />
               <Route path="history" element={<RideHistory />} />
+              <Route path="messages" element={<RiderMessages />} />
             </Routes>
           </ProtectedRoute>
         } />
@@ -118,6 +138,7 @@ function App() {
               <Route path="wallet" element={<Wallet />} />
               <Route path="profile" element={<Profile />} />
               <Route path="history" element={<RideHistory />} />
+              <Route path="messages" element={<DriverMessages />} />
             </Routes>
           </ProtectedRoute>
         } />
