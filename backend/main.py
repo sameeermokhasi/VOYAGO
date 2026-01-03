@@ -41,6 +41,7 @@ app.add_middleware(
         "http://127.0.0.1:5000",
         "http://127.0.0.1:6001",
         "http://127.0.0.1:7001",
+        "https://voyage-go.netlify.app", # Netlify Production
     ],
     allow_credentials=True,
     allow_methods=["*"],

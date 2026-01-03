@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: voyago-backend
+    env: python
+    region: singapore
+    plan: free
+    rootDirectory: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port 10000
+    envVars:
+      - key: DATABASE_URL
+        value: sqlite:///./voyago.db
+        # For production Postgres, you would use:
+        # fromDatabase:
+        #   name: voyago-db
+        #   property: connectionString
+      - key: PYTHON_VERSION
+        value: 3.10.0
+
+# If we were using Postgres (Recommended for persistent data):
+# databases:
+#   - name: voyago-db
+#     plan: free
