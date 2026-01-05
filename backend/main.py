@@ -1,4 +1,4 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import uvicorn
@@ -31,6 +31,13 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan
 )
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    print(f"--- REQUEST: {request.method} {request.url.path} ---")
+    response = await call_next(request)
+    print(f"--- RESPONSE: {response.status_code} ---")
+    return response
 
 # Trigger reload 4
 
