@@ -144,5 +144,10 @@ async def websocket_endpoint(websocket: WebSocket, token: str, db: Session = Dep
     except WebSocketDisconnect:
         manager.disconnect(websocket, user_id)
 
+@app.api_route("/{path_name:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"])
+async def catch_all(request: Request, path_name: str):
+    print(f"--- CATCH ALL HIT: {request.method} {path_name} ---")
+    return {"status": "404", "message": "Path matched catch-all", "path": path_name}
+
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
