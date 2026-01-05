@@ -23,7 +23,8 @@ const getStorageKey = () => {
 }
 
 const api = axios.create({
-  baseURL: '/api',
+  // Direct connection to Render Backend (Bypassing Netlify Proxy)
+  baseURL: 'https://voyago-7192.onrender.com/api',
   headers: {
     'Content-Type': 'application/json',
   },
