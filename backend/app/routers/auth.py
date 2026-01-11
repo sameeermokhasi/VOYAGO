@@ -301,7 +301,33 @@ def google_login(login_data: GoogleLogin, db: Session = Depends(get_db)):
             if not user.is_active:
                 user.is_active = True
                 user.is_verified = True
-                db.commit()
+            
+            # --- ROLE SWITCHING LOGIC ---
+            # If user explicitly requested a different role (via the Google Login UI), update it.
+            if login_data.role and user.role != login_data.role:
+                print(f"--- SWITCHING ROLE: {user.role} -> {login_data.role} ---")
+                user.role = login_data.role
+                
+                # If switching TO Driver, ensure profile exists
+                if user.role == UserRole.DRIVER:
+                    existing_profile = db.query(DriverProfile).filter(DriverProfile.user_id == user.id).first()
+                    if not existing_profile:
+                        license_number = f"GGL{user.id:06d}"
+                        driver_profile = DriverProfile(
+                            user_id=user.id,
+                            license_number=license_number,
+                            is_available=False
+                        )
+                        db.add(driver_profile)
+                        
+                # If switching TO Rider, ensure loyalty points exist
+                elif user.role == UserRole.RIDER:
+                    existing_loyalty = db.query(LoyaltyPoints).filter(LoyaltyPoints.user_id == user.id).first()
+                    if not existing_loyalty:
+                        loyalty = LoyaltyPoints(user_id=user.id)
+                        db.add(loyalty)
+
+            db.commit()
                 
         access_token = create_access_token(data={"sub": user.email})
         
