@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { Car, Mail, Lock, AlertCircle, Eye, EyeOff } from 'lucide-react'
 import { authService } from '../services/api'
 import { useAuthStore } from '../store/authStore'
+import api from '../lib/axios'
 
 export default function Login() {
   const [email, setEmail] = useState('')
@@ -10,12 +11,13 @@ export default function Login() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
-
   const navigate = useNavigate()
   const login = useAuthStore((state) => state.login)
+  const [serverStatus, setServerStatus] = useState('checking')
 
   // Check for token in URL on mount (for cross-port redirection)
   useEffect(() => {
+
     const params = new URLSearchParams(window.location.search)
     const token = params.get('token')
     const userStr = params.get('user')
@@ -103,6 +105,22 @@ export default function Login() {
     }
   };
 
+
+  const checkServerStatus = async () => {
+    setServerStatus('checking');
+    try {
+      await api.get('/ping', { timeout: 5000 }); // Short timeout for check
+      setServerStatus('online');
+    } catch (e) {
+      console.error("Server Check Failed:", e);
+      setServerStatus('offline');
+    }
+  };
+
+  useEffect(() => {
+    checkServerStatus();
+  }, []);
+
   const handleDisplayGoogleButton = () => {
     // Re-render button if we cancel selection
     if (window.google) {
@@ -162,6 +180,19 @@ export default function Login() {
     <div className="min-h-screen flex items-center justify-center bg-black py-12 px-4 relative overflow-hidden">
       {/* Background Effects */}
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-primary-900/10 via-black to-black"></div>
+
+      {/* Server Status Indicator */}
+      <div
+        onClick={checkServerStatus}
+        className={`absolute top-4 right-4 z-50 px-3 py-1.5 rounded-full text-xs font-bold cursor-pointer transition-all border ${serverStatus === 'online' ? 'bg-green-500/20 text-green-400 border-green-500/50 hover:bg-green-500/30' :
+          serverStatus === 'offline' ? 'bg-red-500/20 text-red-400 border-red-500/50 hover:bg-red-500/30' :
+            'bg-yellow-500/20 text-yellow-400 border-yellow-500/50 animate-pulse'
+          }`}
+      >
+        {serverStatus === 'online' ? '🟢 System Operational' :
+          serverStatus === 'offline' ? '🔴 Server Offline (Tap to Retry)' :
+            '🟡 Connecting to Server...'}
+      </div>
 
       <div className="max-w-md w-full relative z-10">
         <div className="text-center mb-8">

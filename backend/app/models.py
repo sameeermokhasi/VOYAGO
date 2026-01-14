@@ -47,7 +47,7 @@ class User(Base):
     rides_as_driver = relationship("Ride", back_populates="driver", foreign_keys="Ride.driver_id")
     driver_profile = relationship("DriverProfile", back_populates="user", uselist=False)
     vacations = relationship("Vacation", back_populates="user", foreign_keys="Vacation.user_id")
-    vacations = relationship("Vacation", back_populates="user", foreign_keys="Vacation.user_id")
+
     loyalty_points = relationship("LoyaltyPoints", back_populates="user", uselist=False)
     transactions = relationship("Transaction", back_populates="user")
 
